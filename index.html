@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Producción"/>
+<meta name="theme-color" content="#1a1916"/>
+<link rel="manifest" href="/manifest.json"/>
+<link rel="apple-touch-icon" href="/icons/icon-192.png"/>
+<link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png"/>
+<link rel="apple-touch-icon" sizes="512x512" href="/icons/icon-512.png"/>
+<link rel="apple-touch-startup-image" href="/icons/icon-512.png"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<title id="pageTitle">Control de Producción</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="hdr">
+  <div class="hdr-left">
+    <div style="display:flex;align-items:baseline;gap:10px;">
+      <h1 id="hdrTitle" title="Clic para configurar">CTRL PRODUCCIÓN</h1>
+      <span class="hdr-date" id="hdrDate"></span>
+    </div>
+    <span class="hdr-sub" id="hdrSub" style="display:none;"></span>
+  </div>
+  <div class="hdr-right">
+    <button class="btn-icon" onclick="openConfig()" title="Configurar área/turno" style="background:transparent;border-color:#555;color:#ccc;padding:5px 8px;font-size:12px;">⚙</button>
+    <label class="edit-toggle">
+      <span id="editLbl">Editar</span>
+      <label class="toggle-sw"><input type="checkbox" id="editToggle" checked/><span class="toggle-sl"></span></label>
+    </label>
+    <button class="btn btn-light btn-sm" onclick="openShare()">↗ Compartir</button>
+  </div>
+</header>
+
+<main class="main">
+<div class="grid2">
+
+  <!-- LEFT PANEL -->
+  <div style="display:flex;flex-direction:column;gap:12px;">
+
+    <!-- OPERACIONES -->
+    <div class="panel">
+      <div class="panel-hdr">
+        <span class="panel-title">Operaciones</span>
+        <span class="badge badge-muted" id="opCount">0</span>
+      </div>
+      <div class="panel-body">
+        <div class="f-row"><input class="f-input" id="newOpInput" placeholder="Nombre de operación..." maxlength="30" onkeydown="if(event.key==='Enter')addOp()"/></div>
+        <label class="check-row"><input type="checkbox" id="chkLast"/> Marcar como última operación</label>
+        <button class="btn btn-dark btn-sm" onclick="addOp()" style="width:100%;justify-content:center;margin-bottom:12px;">+ Agregar</button>
+        <div id="opList"></div>
+      </div>
+    </div>
+
+    <!-- ARTÍCULOS -->
+    <div class="panel">
+      <div class="panel-hdr">
+        <span class="panel-title">Artículos</span>
+        <span class="badge badge-muted" id="artCount">0</span>
+      </div>
+      <div class="panel-body">
+        <div class="f-row"><input class="f-input" id="newArtName" placeholder="Nombre del artículo..." maxlength="40" onkeydown="if(event.key==='Enter')document.getElementById('newArtTotal').focus()"/></div>
+        <div class="f-row"><input class="f-input" id="newArtTotal" type="number" min="1" max="99999" placeholder="Límite de puntas..." onkeydown="if(event.key==='Enter')addArticulo()"/></div>
+        <button class="btn btn-dark btn-sm" onclick="addArticulo()" style="width:100%;justify-content:center;margin-bottom:12px;">+ Agregar artículo</button>
+        <!-- art list for reorder -->
+        <div id="artList" style="display:none;">
+          <div class="cfg-section-title" style="margin-bottom:6px;">Orden de artículos</div>
+          <div id="artListItems"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="panel">
+    <div class="stat-row">
+      <span class="stat-pill">En proceso: <span id="statProc">0</span></span>
+      <span class="stat-pill" style="color:var(--green-text);">Terminados: <span id="statDone">0</span></span>
+      <span class="stat-pill" style="color:var(--amber-text);">Puntas: <span id="statPuntas">0</span></span>
+      <span class="stat-pill" style="color:var(--red-text);display:none;" id="statOverPill">⚠ Excedidos: <span id="statOver">0</span></span>
+    </div>
+    <div class="tabs">
+      <div class="tab active" onclick="showTab('tab-proc',this)">En proceso</div>
+      <div class="tab" onclick="showTab('tab-term',this)">Terminados <span id="doneBadge" style="font-family:var(--mono);font-size:10px;background:var(--green-bg);color:var(--green-text);padding:1px 5px;border-radius:3px;margin-left:2px;"></span></div>
+      <div class="tab" onclick="showTab('tab-res',this)">Resumen <span id="pendBadge" style="font-family:var(--mono);font-size:10px;background:var(--amber-bg);color:var(--amber-text);padding:1px 5px;border-radius:3px;margin-left:2px;"></span></div>
+    </div>
+
+    <!-- EN PROCESO -->
+    <div class="tab-content active" id="tab-proc">
+      <div class="tbl-outer">
+        <table id="mainTable" style="display:none;">
+          <thead id="thead"></thead>
+          <tbody id="tbody"></tbody>
+          <tfoot id="tfoot"></tfoot>
+        </table>
+      </div>
+      <div id="emptyProc" class="empty"><strong>Sin artículos en proceso</strong>Agrega artículos en el panel izquierdo.</div>
+    </div>
+
+    <!-- TERMINADOS -->
+    <div class="tab-content" id="tab-term" style="padding:14px;">
+      <div id="doneContent"></div>
+    </div>
+
+    <!-- RESUMEN -->
+    <div class="tab-content" id="tab-res" style="padding:14px;">
+      <div id="resContent"></div>
+    </div>
+  </div>
+
+</div>
+</main>
+
+<!-- SHARE MODAL -->
+<div class="modal-ov" id="shareModal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span class="modal-title" id="shareModalTitle">COMPARTIR TODO</span>
+      <button class="icon-btn" onclick="closeShare()">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="shareGeneralArea">
+        <div class="share-lbl">Terminados</div>
+        <div class="share-block"><pre id="shareDone"></pre></div>
+        <div class="share-lbl">Pendientes</div>
+        <div class="share-block"><pre id="sharePend"></pre></div>
+      </div>
+      <div id="shareResumenArea" style="display:none;">
+        <div class="share-lbl">Solo Resumen (Pendientes)</div>
+        <div class="share-block"><pre id="shareOnlyRes"></pre></div>
+      </div>
+      <div class="share-actions">
+        <button class="btn btn-dark" onclick="copyDynamic()">Copiar texto</button>
+        <button class="btn btn-sm" style="border:1.5px solid var(--border);color:var(--text);" onclick="shareWA()">WhatsApp</button>
+        <span class="copy-fb" id="copyFb">✓ Copiado</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NUMPAD MODAL -->
+<div class="modal-ov" id="numpadModal">
+  <div class="modal" style="max-width:320px;">
+    <div class="modal-hdr">
+      <span class="modal-title" id="npTitle">INGRESAR PUNTAS</span>
+      <button class="icon-btn" onclick="closeNumpad()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="np-display" id="npDisplay">0</div>
+      <div id="npWarning" style="display:none;font-size:11px;color:var(--red-text);font-family:var(--mono);text-align:center;padding:6px 0;"></div>
+      <div class="numpad">
+        <button class="np-btn" onpointerdown="npDigit('7')">7</button>
+        <button class="np-btn" onpointerdown="npDigit('8')">8</button>
+        <button class="np-btn" onpointerdown="npDigit('9')">9</button>
+        <button class="np-btn" onpointerdown="npDigit('4')">4</button>
+        <button class="np-btn" onpointerdown="npDigit('5')">5</button>
+        <button class="np-btn" onpointerdown="npDigit('6')">6</button>
+        <button class="np-btn" onpointerdown="npDigit('1')">1</button>
+        <button class="np-btn" onpointerdown="npDigit('2')">2</button>
+        <button class="np-btn" onpointerdown="npDigit('3')">3</button>
+        <button class="np-btn" onpointerdown="npDigit('0')" style="grid-column:span 2;">0</button>
+        <button class="np-btn" onpointerdown="npBack()">⌫</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button class="btn" style="flex:1;justify-content:center;border:1.5px solid var(--border);color:var(--text);" onpointerdown="closeNumpad()">Cancelar</button>
+        <button class="btn btn-dark" style="flex:1;justify-content:center;" onpointerdown="npConfirm()">Confirmar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIRM TERMINAR MODAL -->
+<div class="modal-ov" id="confirmModal">
+  <div class="modal" style="max-width:300px;">
+    <div class="modal-hdr"><span class="modal-title">¿TERMINAR ARTÍCULO?</span></div>
+    <div class="modal-body">
+      <p style="font-size:13px;margin-bottom:15px;text-align:center;" id="confirmText"></p>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" style="flex:1;justify-content:center;border:1.5px solid var(--border);color:var(--text);" onclick="closeConfirm()">No, volver</button>
+        <button class="btn btn-dark" style="flex:1;justify-content:center;" id="btnConfirmMove">Sí, terminar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIG MODAL -->
+<div class="modal-ov" id="configModal">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-hdr">
+      <span class="modal-title">CONFIGURACIÓN</span>
+      <button class="icon-btn" onclick="closeConfig()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="cfg-section">
+        <div class="cfg-section-title">Identificación del reporte</div>
+        <div style="margin-bottom:8px;">
+          <div class="f-label">Área / Línea</div>
+          <input class="f-input" id="cfgArea" placeholder="Ej: Línea A, Corte, Ensamble..." maxlength="50"/>
+        </div>
+        <div style="margin-bottom:8px;">
+          <div class="f-label">Turno</div>
+          <input class="f-input" id="cfgTurno" placeholder="Ej: Matutino, 1er turno..." maxlength="40"/>
+        </div>
+        <div style="margin-bottom:8px;">
+          <div class="f-label">Supervisor</div>
+          <input class="f-input" id="cfgSupervisor" placeholder="Nombre del supervisor..." maxlength="50"/>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" style="flex:1;justify-content:center;border:1.5px solid var(--border);color:var(--text);" onclick="closeConfig()">Cancelar</button>
+        <button class="btn btn-dark" style="flex:1;justify-content:center;" onclick="saveConfig()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="main.js"></script>
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('/sw.js')
+      .then(r=>console.log('SW registered',r.scope))
+      .catch(e=>console.log('SW error',e));
+  });
+}
+</script>
+
+</body>
+</html>
