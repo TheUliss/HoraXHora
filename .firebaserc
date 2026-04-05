@@ -1,5 +1,7 @@
 {
   "projects": {
     "default": "tracking-9596e"
-  }
+  },
+  "targets": {},
+  "etags": {}
 }

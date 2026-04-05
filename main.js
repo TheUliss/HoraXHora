@@ -4,6 +4,8 @@ let ops=[], articulos=[], editMode=true;
 let npAi=-1, npCi=-1, npStr='0';
 let shareMode='all', pendingMove=null;
 let cfg={area:'',turno:'',supervisor:''};
+let cardView=window.innerWidth<900; // default to cards on mobile
+
 
 // ── DATE ────────────────────────────────────────────────────
 (function(){
@@ -158,9 +160,37 @@ function cellNum(art,c){const li=lastOpIdx();if(c.opIdx===li)return art.total||0
 function artSum(art){return art.cells.reduce((s,c)=>cellHasData(c)?s+cellNum(art,c):s,0);}
 function artIsOver(art){return art.total>0&&artSum(art)>art.total;}
 
+// ── VIEW TOGGLE ──────────────────────────────────────────────
+function applyViewMode(){
+  const btn=document.getElementById('viewToggleBtn');
+  const tableEl=document.getElementById('viewTable');
+  const cardsEl=document.getElementById('viewCards');
+  if(!tableEl||!cardsEl)return;
+  if(cardView){
+    tableEl.style.display='none';
+    cardsEl.style.display='block';
+    btn.textContent='⊟'; // table icon
+    btn.classList.add('active');
+    renderCards();
+  }else{
+    tableEl.style.display='block';
+    cardsEl.style.display='none';
+    btn.textContent='⊞'; // card icon
+    btn.classList.remove('active');
+    renderTable();
+  }
+}
+
+function toggleView(){
+  cardView=!cardView;
+  applyViewMode();
+}
+
 // ── RENDER ALL ───────────────────────────────────────────────
 function renderAll(){
-  renderOps(); renderArtList(); renderTable(); renderDone(); renderResumen(); renderStats();
+  renderOps(); renderArtList();
+  if(cardView) renderCards(); else renderTable();
+  renderDone(); renderResumen(); renderStats();
   document.getElementById('artCount').textContent=articulos.length;
 }
 
@@ -259,6 +289,144 @@ function renderTable(){
       <td></td>
     </tr>`;
   }else{document.getElementById('tfoot').innerHTML='';}
+}
+
+// ── CARD VIEW ─────────────────────────────────────────────────
+// Returns the current hour index within the shift (0=7:00-8:00 ... 11=18:00-19:00)
+// Clamped to [0, 11]. Before 7:00 → 0. After 19:00 → 11.
+function getCurrentHourIdx(){
+  const now=new Date();
+  const h=now.getHours();
+  // shift starts at 7, ends at 19 (hour 18 is last slot 18:00-19:00)
+  if(h<7)return 0;
+  if(h>=19)return 11;
+  return h-7; // 7→0, 8→1, ... 18→11
+}
+
+function buildChip(art,ri,ci,isCurrent,isHistory){
+  const h=HORAS[ci];
+  const c=art.cells[ci];
+  const hasOp=c.opIdx>=0;
+  const num=cellNum(art,c);
+  const cellOver=art.total>0&&hasOp&&num>art.total;
+  let chipCls=cellOver?'chip-over':hasOp?'has-data':'';
+  if(isCurrent) chipCls+=' chip-current';
+  const opName=hasOp&&ops[c.opIdx]?ops[c.opIdx].name:'';
+  const opNum=hasOp?c.opIdx+1:null;
+
+  const selectHtml=editMode?`
+    <div class="hour-chip-select-wrap">
+      <select class="hour-chip-select" onchange="validateCellOp(${ri},${ci},this.value)">
+        <option value="-1">— Sin op —</option>
+        ${ops.map((o,oi)=>`<option value="${oi}"${c.opIdx===oi?' selected':''}>${oi+1}. ${o.name}</option>`).join('')}
+      </select>
+    </div>`:'';
+
+  const countHtml=hasOp?`
+    <div class="hour-chip-count">
+      <span class="hour-chip-num${cellOver?' over':''}" onclick="${editMode?`openNumpad(${ri},${ci})`:''}"
+        style="${editMode?'cursor:pointer;':''}">${num}</span>
+      ${editMode?`
+      <div class="hour-chip-stepper">
+        <button class="chip-step-btn" onpointerdown="stepUp(event,${ri},${ci})">+</button>
+        <button class="chip-step-btn" onpointerdown="stepDown(event,${ri},${ci})">−</button>
+      </div>
+      `:''}
+    </div>`:'';
+
+  return `<div class="hour-chip ${chipCls.trim()}">
+    <div class="hour-chip-time">${h}${isCurrent?'<span class="chip-now-badge">AHORA</span>':''}</div>
+    <div class="hour-chip-body">
+      ${hasOp
+        ?`<div class="hour-chip-op"><span class="hour-chip-op-num">${opNum}.</span>${opName}</div>${countHtml}`
+        :`<div class="hour-chip-empty">·</div>`
+      }
+    </div>
+    ${selectHtml}
+  </div>`;
+}
+
+function renderCards(){
+  const active=articulos.filter(a=>!isDone(a));
+  const cont=document.getElementById('viewCards');
+  document.getElementById('emptyProc').style.display=active.length?'none':'block';
+  if(!active.length){cont.innerHTML='';return;}
+
+  const curIdx=getCurrentHourIdx();
+  // window: up to 2 before + current + 1 ahead, clamped to [0,11]
+  const winStart=Math.max(0,curIdx-2);
+  const winEnd=Math.min(11,curIdx+1);
+  const windowIdxs=[];
+  for(let i=winStart;i<=winEnd;i++)windowIdxs.push(i);
+  // history: everything outside the window
+  const histIdxsBefore=[]; // indices before window
+  const histIdxsAfter=[];  // indices after window
+  for(let i=0;i<winStart;i++)histIdxsBefore.push(i);
+  for(let i=winEnd+1;i<=11;i++)histIdxsAfter.push(i);
+
+  // Preserve expanded states
+  const expanded={};
+  const histOpen={};
+  cont.querySelectorAll('.art-card').forEach(el=>{
+    if(el.classList.contains('expanded')) expanded[el.dataset.ai]=true;
+    if(el.classList.contains('hist-open')) histOpen[el.dataset.ai]=true;
+  });
+
+  cont.innerHTML=active.map(art=>{
+    const ri=articulos.indexOf(art);
+    const over=artIsOver(art);
+    const suma=artSum(art);
+    const isExpanded=expanded[ri]!==undefined?expanded[ri]:true;
+    const isHistOpen=histOpen[ri]||false;
+    const filledHours=art.cells.filter(c=>cellHasData(c)).length;
+    const hiddenFilled=[...histIdxsBefore,...histIdxsAfter].filter(i=>cellHasData(art.cells[i])).length;
+
+    const windowChips=windowIdxs.map(ci=>buildChip(art,ri,ci,ci===curIdx,false)).join('');
+    const histBeforeChips=histIdxsBefore.map(ci=>buildChip(art,ri,ci,false,true)).join('');
+    const histAfterChips=histIdxsAfter.map(ci=>buildChip(art,ri,ci,false,true)).join('');
+
+    const hasHistory=histIdxsBefore.length>0||histIdxsAfter.length>0;
+    const histSection=hasHistory?
+      '<div class="hist-toggle" onclick="toggleHoursHistory('+ri+')">'+(isHistOpen?'▲ Ocultar historial':'▼ Ver historial completo')+(hiddenFilled>0&&!isHistOpen?'<span class="hist-badge">'+hiddenFilled+' registradas</span>':'')+'</div>'+
+      '<div class="hist-body'+(isHistOpen?' open':'')+'">'+
+      (histIdxsBefore.length?'<div class="hist-section-label">Horas anteriores</div><div class="hours-strip hist-strip">'+histBeforeChips+'</div>':'')+
+      (histIdxsAfter.length?'<div class="hist-section-label">Horas siguientes</div><div class="hours-strip hist-strip">'+histAfterChips+'</div>':'')+
+      '</div>'
+    :'';
+
+    return '<div class="art-card'+(over?' card-over':'')+(isExpanded?' expanded':'')+(isHistOpen?' hist-open':'')+'" data-ai="'+ri+'">'+
+      '<div class="art-card-hdr" onclick="toggleCard('+ri+')">'+
+        '<div class="art-card-hdr-left">'+
+          '<div class="art-card-name'+(over?' over':'')+'">'+( over?'⚠ ':'')+art.name+'</div>'+
+          '<div class="art-card-meta">'+filledHours+' hrs registradas'+(art.total?' · límite: '+art.total:'')+'</div>'+
+        '</div>'+
+        '<div class="art-card-actions">'+
+          '<button class="icon-btn danger" onclick="event.stopPropagation();removeArticulo('+ri+')" style="padding:3px 5px;">×</button>'+
+          '<span class="art-card-chevron">▼</span>'+
+        '</div>'+
+      '</div>'+
+      '<div class="art-card-prog">'+progBar(art)+'</div>'+
+      '<div class="art-card-body">'+
+        '<div class="hours-strip">'+windowChips+'</div>'+
+        histSection+
+        '<div class="art-card-footer">'+
+          '<span class="art-card-footer-label">Total puntas</span>'+
+          '<span class="art-card-footer-val">'+suma+(art.total?' / '+art.total:'')+'</span>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+}
+
+function toggleCard(ai){
+  const el=document.querySelector('.art-card[data-ai="'+ai+'"]');
+  if(el)el.classList.toggle('expanded');
+}
+
+function toggleHoursHistory(ai){
+  const el=document.querySelector('.art-card[data-ai="'+ai+'"]');
+  if(el)el.classList.toggle('hist-open');
+  renderCards();
 }
 
 // ── CELL OPS ─────────────────────────────────────────────────
@@ -483,3 +651,4 @@ function load(){
 load();
 applyConfig();
 renderAll();
+applyViewMode();

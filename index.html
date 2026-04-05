@@ -86,21 +86,29 @@
       <span class="stat-pill" style="color:var(--amber-text);">Puntas: <span id="statPuntas">0</span></span>
       <span class="stat-pill" style="color:var(--red-text);display:none;" id="statOverPill">⚠ Excedidos: <span id="statOver">0</span></span>
     </div>
-    <div class="tabs">
-      <div class="tab active" onclick="showTab('tab-proc',this)">En proceso</div>
-      <div class="tab" onclick="showTab('tab-term',this)">Terminados <span id="doneBadge" style="font-family:var(--mono);font-size:10px;background:var(--green-bg);color:var(--green-text);padding:1px 5px;border-radius:3px;margin-left:2px;"></span></div>
-      <div class="tab" onclick="showTab('tab-res',this)">Resumen <span id="pendBadge" style="font-family:var(--mono);font-size:10px;background:var(--amber-bg);color:var(--amber-text);padding:1px 5px;border-radius:3px;margin-left:2px;"></span></div>
+    <div class="tabs-bar">
+      <div class="tabs">
+        <div class="tab active" onclick="showTab('tab-proc',this)">En proceso</div>
+        <div class="tab" onclick="showTab('tab-term',this)">Terminados <span id="doneBadge" style="font-family:var(--mono);font-size:10px;background:var(--green-bg);color:var(--green-text);padding:1px 5px;border-radius:3px;margin-left:2px;"></span></div>
+        <div class="tab" onclick="showTab('tab-res',this)">Resumen <span id="pendBadge" style="font-family:var(--mono);font-size:10px;background:var(--amber-bg);color:var(--amber-text);padding:1px 5px;border-radius:3px;margin-left:2px;"></span></div>
+      </div>
+      <button class="view-toggle-btn" id="viewToggleBtn" onclick="toggleView()" title="Cambiar vista">⊞</button>
     </div>
 
     <!-- EN PROCESO -->
     <div class="tab-content active" id="tab-proc">
-      <div class="tbl-outer">
-        <table id="mainTable" style="display:none;">
-          <thead id="thead"></thead>
-          <tbody id="tbody"></tbody>
-          <tfoot id="tfoot"></tfoot>
-        </table>
+      <!-- TABLE VIEW -->
+      <div id="viewTable">
+        <div class="tbl-outer">
+          <table id="mainTable" style="display:none;">
+            <thead id="thead"></thead>
+            <tbody id="tbody"></tbody>
+            <tfoot id="tfoot"></tfoot>
+          </table>
+        </div>
       </div>
+      <!-- CARD VIEW -->
+      <div id="viewCards" style="display:none;padding:10px 10px 16px;"></div>
       <div id="emptyProc" class="empty"><strong>Sin artículos en proceso</strong>Agrega artículos en el panel izquierdo.</div>
     </div>
 
@@ -222,6 +230,26 @@
 </div>
 
 <script src="main.js"></script>
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-analytics.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCNh98VzMX2g86KZQ6dKt4oQw1QxlxaotU",
+    authDomain: "tracking-9596e.firebaseapp.com",
+    projectId: "tracking-9596e",
+    storageBucket: "tracking-9596e.firebasestorage.app",
+    messagingSenderId: "1012551232123",
+    appId: "1:1012551232123:web:77f9ef9c5191e180fa90de",
+    measurementId: "G-QC5BG6ZY87"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+  console.log("Firebase initialized");
+</script>
+
 <script>
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
