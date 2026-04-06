@@ -1,11 +1,25 @@
-const HORAS=['7:00-8:00','8:00-9:00','9:00-10:00','10:00-11:00','11:00-12:00','12:00-13:00','13:00-14:00','14:00-15:00','15:00-16:00','16:00-17:00','17:00-18:00','18:00-19:00'];
+const DEF_OPS=[{name:'Ensamblado',last:false},{name:'Soldado',last:false},{name:'Empaquetado',last:true}];
+let cfg=JSON.parse(localStorage.getItem('prod_cfg')||'{"area":"","turno":"","supervisor":""}');
+if(!cfg.shiftMode) cfg.shiftMode = 'dia';
+if(!cfg.viewMode) cfg.viewMode = 'continuo';
+let ops=JSON.parse(localStorage.getItem('prod_ops'))||DEF_OPS;
+let articulos=JSON.parse(localStorage.getItem('prod_art'))||[];
+let editMode=true;
+let cardView=localStorage.getItem('prod_cardView')!=='false';
 
-let ops=[], articulos=[], editMode=true;
-let npAi=-1, npCi=-1, npStr='0';
-let shareMode='all', pendingMove=null;
-let cfg={area:'',turno:'',supervisor:''};
-let cardView=window.innerWidth<900; // default to cards on mobile
+let pendingMove=null;
+let npStr='',npAi=0,npCi=0;
+let opDragIdx=-1, artDragIdx=-1;
 
+let HORAS = [];
+function updateShiftHours() {
+  if (cfg.shiftMode === 'noche') {
+    HORAS = ['19:00-20:00','20:00-21:00','21:00-22:00','22:00-23:00','23:00-0:00','0:00-1:00','1:00-2:00','2:00-3:00','3:00-4:00','4:00-5:00','5:00-6:00','6:00-7:00'];
+  } else {
+    HORAS = ['7:00-8:00','8:00-9:00','9:00-10:00','10:00-11:00','11:00-12:00','12:00-13:00','13:00-14:00','14:00-15:00','15:00-16:00','16:00-17:00','17:00-18:00','18:00-19:00'];
+  }
+}
+updateShiftHours();
 
 // ── DATE ────────────────────────────────────────────────────
 (function(){
@@ -30,9 +44,11 @@ document.getElementById('editToggle').addEventListener('change',function(){
 
 // ── CONFIG ───────────────────────────────────────────────────
 function openConfig(){
-  document.getElementById('cfgArea').value=cfg.area;
-  document.getElementById('cfgTurno').value=cfg.turno;
-  document.getElementById('cfgSupervisor').value=cfg.supervisor;
+  document.getElementById('cfgArea').value=cfg.area||'';
+  document.getElementById('cfgTurno').value=cfg.turno||'';
+  document.getElementById('cfgSupervisor').value=cfg.supervisor||'';
+  document.getElementById('cfgShiftMode').value=cfg.shiftMode||'dia';
+  document.getElementById('cfgViewMode').value=cfg.viewMode||'continuo';
   document.getElementById('configModal').classList.add('open');
 }
 function closeConfig(){document.getElementById('configModal').classList.remove('open');}
@@ -40,9 +56,13 @@ function saveConfig(){
   cfg.area=document.getElementById('cfgArea').value.trim();
   cfg.turno=document.getElementById('cfgTurno').value.trim();
   cfg.supervisor=document.getElementById('cfgSupervisor').value.trim();
+  cfg.shiftMode=document.getElementById('cfgShiftMode').value;
+  cfg.viewMode=document.getElementById('cfgViewMode').value;
+  updateShiftHours();
   applyConfig();
   save();
   closeConfig();
+  renderAll();
 }
 function applyConfig(){
   const parts=[];
@@ -56,6 +76,10 @@ function applyConfig(){
   document.getElementById('pageTitle').textContent=title;
 }
 document.getElementById('hdrTitle').addEventListener('click',openConfig);
+
+// ── OPERACIONES MODAL ──────────────────────────────────────
+function openOps(){document.getElementById('opsModal').classList.add('open');renderOps();}
+function closeOps(){document.getElementById('opsModal').classList.remove('open');}
 
 // ── OPS ─────────────────────────────────────────────────────
 function addOp(){
@@ -79,7 +103,7 @@ function setLastOp(i){
 function renderOps(){
   const el=document.getElementById('opList');
   document.getElementById('opCount').textContent=ops.length;
-  if(!ops.length){el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:4px 0;">Sin operaciones aún.</div>';return;}
+  if(!ops.length){el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:4px 0;">Sin operaciones aún. Agrega la primera.</div>';return;}
   el.innerHTML=ops.map((o,i)=>`
     <div class="op-item" draggable="true" data-idx="${i}"
       ondragstart="opDragStart(event,${i})" ondragover="opDragOver(event,${i})"
@@ -97,7 +121,6 @@ function renderOps(){
 }
 
 // ── OPS DRAG & DROP ─────────────────────────────────────────
-let opDragIdx=-1;
 function opDragStart(e,i){opDragIdx=i;e.currentTarget.classList.add('dragging');}
 function opDragOver(e,i){e.preventDefault();if(i!==opDragIdx)e.currentTarget.classList.add('drag-over');}
 function opDragLeave(e){e.currentTarget.classList.remove('drag-over');}
@@ -111,13 +134,21 @@ function opDrop(e,i){
 function opDragEnd(){opDragIdx=-1;renderAll();}
 
 // ── ARTÍCULOS ───────────────────────────────────────────────
+function checkDuplicateName(val){
+  const w=document.getElementById('dupWarning');
+  const exists=articulos.some(a=>a.name.toLowerCase()===val.trim().toLowerCase());
+  w.style.display=exists&&val.trim()?'block':'none';
+}
+
 function addArticulo(){
   const n=document.getElementById('newArtName').value.trim();
   const t=parseInt(document.getElementById('newArtTotal').value)||0;
   if(!n)return;
-  articulos.push({name:n,total:t,cells:HORAS.map(()=>({opIdx:-1,num:0}))});
+  const isDup=articulos.some(a=>a.name.toLowerCase()===n.toLowerCase());
+  articulos.push({name:n,total:t,cells:HORAS.map(()=>({opIdx:-1,num:0})),isDuplicate:isDup});
   document.getElementById('newArtName').value='';
   document.getElementById('newArtTotal').value='';
+  document.getElementById('dupWarning').style.display='none';
   save(); renderAll();
 }
 
@@ -139,7 +170,6 @@ function renderArtList(){
 }
 
 // ── ARTÍCULOS DRAG & DROP ───────────────────────────────────
-let artDragIdx=-1;
 function artDragStart(e,i){artDragIdx=i;e.currentTarget.classList.add('dragging');}
 function artDragOver(e,i){e.preventDefault();if(i!==artDragIdx)e.currentTarget.classList.add('drag-over');}
 function artDragLeave(e){e.currentTarget.classList.remove('drag-over');}
@@ -156,9 +186,49 @@ function artDragEnd(){artDragIdx=-1;renderAll();}
 function lastOpIdx(){return ops.findIndex(o=>o.last);}
 function isDone(art){const li=lastOpIdx();if(li<0)return false;return art.cells.some(c=>c.opIdx===li);}
 function cellHasData(c){return c.opIdx>=0;}
-function cellNum(art,c){const li=lastOpIdx();if(c.opIdx===li)return art.total||0;return c.num||0;}
-function artSum(art){return art.cells.reduce((s,c)=>cellHasData(c)?s+cellNum(art,c):s,0);}
-function artIsOver(art){return art.total>0&&artSum(art)>art.total;}
+function cellNum(art,c){return c.num||0;}
+
+function getLastRemaining(art){
+  for (let i = art.cells.length - 1; i >= 0; i--) {
+      const c = art.cells[i];
+      // Ignore 0 as it implies 'not explicitly added this hour'
+      if (cellHasData(c) && c.num > 0) return c.num;
+  }
+  return art.total || 0;
+}
+
+function artSum(art){
+  const li=lastOpIdx();
+  const dataCells=art.cells.filter(c=>cellHasData(c));
+  if(!dataCells.length)return 0;
+  
+  const lastC=dataCells[dataCells.length-1];
+  if(lastC.opIdx===li)return art.total||0;
+  
+  const total=art.total||0;
+  const remaining=getLastRemaining(art);
+  return Math.max(0,total-remaining);
+}
+
+function artIsOver(art){
+  // If no data, it's not over.
+  // If it's over, it means 'progress' exceeds 'total', which shouldn't happen with subtraction
+  // But maybe the user meant if 'remaining' is 0 when they haven't finished? No.
+  // Actually, let's keep it simple: progress > total.
+  return art.total>0&&artSum(art)>art.total;
+}
+
+function revertToProcess(ri){
+  const art=articulos[ri];
+  const li=lastOpIdx();
+  art.cells.forEach(c=>{
+    if(c.opIdx===li){
+      c.opIdx=-1;
+      c.num=0;
+    }
+  });
+  save();renderAll();
+}
 
 // ── VIEW TOGGLE ──────────────────────────────────────────────
 function applyViewMode(){
@@ -166,16 +236,20 @@ function applyViewMode(){
   const tableEl=document.getElementById('viewTable');
   const cardsEl=document.getElementById('viewCards');
   if(!tableEl||!cardsEl)return;
+  // Persist preference
+  localStorage.setItem('prod_cardView', cardView ? 'true' : 'false');
   if(cardView){
     tableEl.style.display='none';
     cardsEl.style.display='block';
-    btn.textContent='⊟'; // table icon
+    btn.textContent='⊟';
+    btn.title='Cambiar a tabla';
     btn.classList.add('active');
     renderCards();
   }else{
     tableEl.style.display='block';
     cardsEl.style.display='none';
-    btn.textContent='⊞'; // card icon
+    btn.textContent='⊞';
+    btn.title='Cambiar a tarjetas';
     btn.classList.remove('active');
     renderTable();
   }
@@ -215,7 +289,12 @@ function progBar(art){
   if(!total) return `<span class="badge badge-amber">${suma}</span>`;
   const pct=Math.min((suma/total)*100,100);
   const isOver=suma>total;
-  const cls=isOver?'over':pct>=80?'warn':'ok';
+  let cls = 'high';
+  if (isOver) cls = 'over';
+  else if (pct < 25) cls = 'over'; // Rango 0-24% ahora es ROJO
+  else if (pct < 50) cls = 'low';  // Rango 25-49% es NARANJA
+  else if (pct < 75) cls = 'mid';  // Rango 50-74% es AMARILLO (75+ es VERDE)
+  
   return `<div class="prog-wrap">
     <div class="prog-bar-track"><div class="prog-bar-fill ${cls}" style="width:${pct}%"></div></div>
     <div class="prog-nums${isOver?' over':''}">
@@ -245,6 +324,7 @@ function renderTable(){
       <td class="col-art">
         <div class="art-wrap">
           <span style="font-weight:500;${over?'color:var(--red-text);':''}">${over?'⚠ ':''}${art.name}</span>
+          ${art.isDuplicate ? '<span style="font-size:9px;color:#c0392b;font-weight:600;display:inline-block;margin-top:2px;">⚠ DUPLICADO</span>' : ''}
           ${art.total?`<span class="art-lim">límite: ${art.total}</span>`: ''}
         </div>
       </td>
@@ -292,15 +372,19 @@ function renderTable(){
 }
 
 // ── CARD VIEW ─────────────────────────────────────────────────
-// Returns the current hour index within the shift (0=7:00-8:00 ... 11=18:00-19:00)
-// Clamped to [0, 11]. Before 7:00 → 0. After 19:00 → 11.
+// Returns the current hour index within the shift [0, 11]
 function getCurrentHourIdx(){
   const now=new Date();
   const h=now.getHours();
-  // shift starts at 7, ends at 19 (hour 18 is last slot 18:00-19:00)
-  if(h<7)return 0;
-  if(h>=19)return 11;
-  return h-7; // 7→0, 8→1, ... 18→11
+  if (cfg.shiftMode === 'noche') {
+    if (h >= 19) return h - 19;
+    if (h < 7) return h + 5;
+    return 11; // daytime -> clamp to end of shift
+  } else {
+    if(h<7)return 0;
+    if(h>=19)return 11;
+    return h-7;
+  }
 }
 
 function buildChip(art,ri,ci,isCurrent,isHistory){
@@ -353,14 +437,19 @@ function renderCards(){
   if(!active.length){cont.innerHTML='';return;}
 
   const curIdx=getCurrentHourIdx();
-  // window: up to 2 before + current + 1 ahead, clamped to [0,11]
-  const winStart=Math.max(0,curIdx-2);
-  const winEnd=Math.min(11,curIdx+1);
+  let winStart = 0, winEnd = 11;
+  
+  if (!editMode && cfg.viewMode !== 'turno') {
+    // Continuo Read-Only: 2 hours prior to current
+    winStart = Math.max(0, curIdx - 2);
+    winEnd = Math.min(11, Math.max(curIdx, winStart));
+  }
+  
   const windowIdxs=[];
   for(let i=winStart;i<=winEnd;i++)windowIdxs.push(i);
   // history: everything outside the window
-  const histIdxsBefore=[]; // indices before window
-  const histIdxsAfter=[];  // indices after window
+  const histIdxsBefore=[];
+  const histIdxsAfter=[];
   for(let i=0;i<winStart;i++)histIdxsBefore.push(i);
   for(let i=winEnd+1;i<=11;i++)histIdxsAfter.push(i);
 
@@ -397,7 +486,7 @@ function renderCards(){
     return '<div class="art-card'+(over?' card-over':'')+(isExpanded?' expanded':'')+(isHistOpen?' hist-open':'')+'" data-ai="'+ri+'">'+
       '<div class="art-card-hdr" onclick="toggleCard('+ri+')">'+
         '<div class="art-card-hdr-left">'+
-          '<div class="art-card-name'+(over?' over':'')+'">'+( over?'⚠ ':'')+art.name+'</div>'+
+          '<div class="art-card-name'+(over?' over':'')+'">'+( over?'⚠ ':'')+art.name+(art.isDuplicate?' <span style="font-size:9px;color:#c0392b;font-weight:600;margin-left:4px;">⚠ DUPLICADO</span>':'')+'</div>'+
           '<div class="art-card-meta">'+filledHours+' hrs registradas'+(art.total?' · límite: '+art.total:'')+'</div>'+
         '</div>'+
         '<div class="art-card-actions">'+
@@ -437,17 +526,26 @@ function validateCellOp(ai,ci,val){
     pendingMove={ai,ci,val:v};
     document.getElementById('confirmText').textContent=`¿Seguro que "${articulos[ai].name}" completó la última operación?`;
     document.getElementById('confirmModal').classList.add('open');
-    renderAll();
   }else{
     setCellOp(ai,ci,v);
   }
 }
-document.getElementById('btnConfirmMove').onclick=function(){
-  if(pendingMove){setCellOp(pendingMove.ai,pendingMove.ci,pendingMove.val);closeConfirm();}
-};
+
+function confirmMove(){
+  if(pendingMove){
+    const pm = pendingMove;
+    pendingMove = null;
+    setCellOp(pm.ai, pm.ci, pm.val);
+  }
+  document.getElementById('confirmModal').classList.remove('open');
+}
+
 function closeConfirm(){
   document.getElementById('confirmModal').classList.remove('open');
-  pendingMove=null; renderAll();
+  if(pendingMove){
+    pendingMove=null;
+    renderAll();
+  }
 }
 function setCellOp(ai,ci,val){
   articulos[ai].cells[ci].opIdx=val;
@@ -511,28 +609,26 @@ function npConfirm(){
 // ── TERMINADOS ───────────────────────────────────────────────
 function renderDone(){
   const done=articulos.filter(a=>isDone(a));
-  const totalDonePuntas=done.reduce((s,a)=>s+artSum(a),0);
+  const totalDonePuntas=done.reduce((s,a)=>s+(a.total||0),0);
   document.getElementById('doneBadge').textContent=done.length||'';
   const cont=document.getElementById('doneContent');
   if(!done.length){cont.innerHTML='<div class="empty"><strong>Sin terminados aún</strong>Aparecerán cuando confirmes la última operación.</div>';return;}
-  cont.innerHTML=`<table class="inner-table">
-    <thead><tr><th>Artículo</th><th>Puntas</th><th>Límite</th><th></th></tr></thead>
+  cont.innerHTML=`<div class="table-wrap"><table class="inner-table">
+    <thead><tr><th>Artículo</th><th>Puntas</th><th></th></tr></thead>
     <tbody>${done.map(a=>{
-      const suma=artSum(a);
-      const over=a.total>0&&suma>a.total;
+      const ri=articulos.indexOf(a);
       return `<tr>
         <td style="font-weight:500;color:var(--green-text);">✓ ${a.name}</td>
-        <td><span class="badge ${over?'badge-red':'badge-last'}">${suma}</span></td>
-        <td style="color:var(--text2);">${a.total|| '—'}</td>
-        <td><button class="icon-btn danger" onclick="removeArticulo(${articulos.indexOf(a)})">×</button></td>
+        <td><span class="badge badge-last">${a.total||0}</span></td>
+        <td><button class="icon-btn" onclick="revertToProcess(${ri})" title="Devolver a proceso" style="color:var(--text3);">&#8634;</button></td>
       </tr>`;
     }).join('')}</tbody>
     <tfoot><tr>
       <td><strong>TOTAL TERMINADOS</strong></td>
       <td><span class="badge badge-last">${totalDonePuntas}</span></td>
-      <td colspan="2"></td>
+      <td></td>
     </tr></tfoot>
-  </table>`;
+  </table></div>`;
 }
 
 // ── RESUMEN ──────────────────────────────────────────────────
@@ -545,19 +641,23 @@ function renderResumen(){
     <div style="margin-bottom:12px;display:flex;justify-content:flex-end;">
       <button class="btn btn-dark btn-sm" onclick="openShare('resumen')">↗ Compartir Resumen</button>
     </div>
-    <table class="inner-table">
-    <thead><tr><th>Artículo</th><th>Progreso</th><th>Operación actual</th></tr></thead>
+    <div class="table-wrap"><table class="inner-table">
+    <thead><tr><th>Artículo</th><th>Puntas</th><th>Última Operación</th><th>Progreso</th></tr></thead>
     <tbody>${notDone.map(a=>{
-      const lc=a.cells.filter(c=>cellHasData(c)).pop();
-      const num=lc?cellNum(a,lc):0;
-      const opName=lc&&ops[lc.opIdx]?`${lc.opIdx+1}. ${ops[lc.opIdx].name}`:'—';
+      const cellsWithData = a.cells.filter(c=>cellHasData(c));
+      const lc = cellsWithData[cellsWithData.length - 1];
+      const hourIdx = a.cells.lastIndexOf(lc);
+      const opName = lc && ops[lc.opIdx] ? `${lc.opIdx+1}. ${ops[lc.opIdx].name}` : '—';
+      const num = lc ? getLastRemaining(a) : 0;
+      const hourStr = hourIdx >= 0 ? `<div style="font-size:9px;color:var(--text3);margin-top:2px;">Hora: ${HORAS[hourIdx]}</div>` : '';
       return `<tr>
         <td style="font-weight:500;">${a.name}</td>
+        <td><span class="badge badge-muted">${num}</span></td>
+        <td><div>${opName}</div>${hourStr}</td>
         <td>${progBar(a)}</td>
-        <td>${opName}</td>
       </tr>`;
     }).join('')}</tbody>
-  </table>`;
+  </table></div>`;
 }
 
 // ── SHARE ─────────────────────────────────────────────────────
@@ -571,14 +671,14 @@ function buildShare(){
   const done=articulos.filter(a=>isDone(a));
   const pend=articulos.filter(a=>!isDone(a)&&a.cells.some(c=>cellHasData(c)));
   const txtDone=header+'\n\n✅ TERMINADOS:\n'
-    +(done.length?done.map(a=>`  ✓ ${a.name} (${artSum(a)} puntas)`).join('\n'):'  (ninguno)');
+    +(done.length?done.map(a=>`  ✓ ${a.name} (${a.total||0} puntas)`).join('\n'):'  (ninguno)');
   const txtPend='⏳ PENDIENTES:\n'
     +(pend.length?pend.map(a=>{
       const lc=a.cells.filter(c=>cellHasData(c)).pop();
       const opName=lc&&ops[lc.opIdx]?`${lc.opIdx+1}. ${ops[lc.opIdx].name}`:'—';
-      const num=lc?cellNum(a,lc):0;
-      const over=a.total>0&&artSum(a)>a.total?` ⚠ EXCEDE LÍMITE`:'';
-      return `  • ${a.name} — ${opName} | ${num} puntas${over}`;
+      const progress=artSum(a);
+      const over=a.total>0&&progress>a.total?` ⚠ EXCEDE LÍMITE`:'';
+      return `  • ${a.name} — ${opName} | ${progress}/${a.total||0}${over}`;
     }).join('\n'):'  (ninguno)');
   const onlyRes=header+'\n\n'+txtPend;
   return{txtDone,txtPend,onlyRes};
@@ -618,13 +718,14 @@ function shareWA(){
 }
 
 // ── MODAL CLOSE ON BACKDROP ──────────────────────────────────
-['shareModal','numpadModal','confirmModal','configModal'].forEach(id=>{
+['shareModal','numpadModal','confirmModal','configModal','opsModal'].forEach(id=>{
   document.getElementById(id).addEventListener('click',function(e){
     if(e.target===this){
       if(id==='confirmModal')closeConfirm();
       else if(id==='numpadModal')closeNumpad();
       else if(id==='shareModal')closeShare();
       else if(id==='configModal')closeConfig();
+      else if(id==='opsModal')closeOps();
     }
   });
 });

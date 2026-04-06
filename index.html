@@ -29,57 +29,37 @@
     <span class="hdr-sub" id="hdrSub" style="display:none;"></span>
   </div>
   <div class="hdr-right">
-    <button class="btn-icon" onclick="openConfig()" title="Configurar área/turno" style="background:transparent;border-color:#555;color:#ccc;padding:5px 8px;font-size:12px;">⚙</button>
+    <button class="btn-icon" onclick="openOps()" title="Gestionar operaciones" style="background:transparent;border-color:#555;color:#ccc;padding:5px 10px;font-size:16px;letter-spacing:0;">&#9776;</button>
+    <button class="btn-icon" onclick="openConfig()" title="Configurar área/turno" style="background:transparent;border-color:#555;color:#ccc;padding:5px 8px;font-size:14px;">&#9881;</button>
     <label class="edit-toggle">
       <span id="editLbl">Editar</span>
       <label class="toggle-sw"><input type="checkbox" id="editToggle" checked/><span class="toggle-sl"></span></label>
     </label>
-    <button class="btn btn-light btn-sm" onclick="openShare()">↗ Compartir</button>
+    <button class="btn btn-light btn-sm" onclick="openShare()">&#8599; Compartir</button>
   </div>
 </header>
 
 <main class="main">
-<div class="grid2">
 
-  <!-- LEFT PANEL -->
-  <div style="display:flex;flex-direction:column;gap:12px;">
-
-    <!-- OPERACIONES -->
-    <div class="panel">
-      <div class="panel-hdr">
-        <span class="panel-title">Operaciones</span>
-        <span class="badge badge-muted" id="opCount">0</span>
-      </div>
-      <div class="panel-body">
-        <div class="f-row"><input class="f-input" id="newOpInput" placeholder="Nombre de operación..." maxlength="30" onkeydown="if(event.key==='Enter')addOp()"/></div>
-        <label class="check-row"><input type="checkbox" id="chkLast"/> Marcar como última operación</label>
-        <button class="btn btn-dark btn-sm" onclick="addOp()" style="width:100%;justify-content:center;margin-bottom:12px;">+ Agregar</button>
-        <div id="opList"></div>
+  <!-- ADD ARTICLE BAR (compact, always visible) -->
+  <div class="add-art-bar">
+    <div style="position:relative;">
+      <input class="f-input add-art-input" id="newArtName" placeholder="Nombre del artículo..." maxlength="40"
+        oninput="checkDuplicateName(this.value)"
+        onkeydown="if(event.key==='Enter')document.getElementById('newArtTotal').focus()"/>
+      <div id="dupWarning" style="display:none;font-size:11px;color:#c0392b;margin-top:4px;font-family:var(--mono);">
+        ⚠ Ya existe un artículo con este nombre
       </div>
     </div>
-
-    <!-- ARTÍCULOS -->
-    <div class="panel">
-      <div class="panel-hdr">
-        <span class="panel-title">Artículos</span>
-        <span class="badge badge-muted" id="artCount">0</span>
-      </div>
-      <div class="panel-body">
-        <div class="f-row"><input class="f-input" id="newArtName" placeholder="Nombre del artículo..." maxlength="40" onkeydown="if(event.key==='Enter')document.getElementById('newArtTotal').focus()"/></div>
-        <div class="f-row"><input class="f-input" id="newArtTotal" type="number" min="1" max="99999" placeholder="Límite de puntas..." onkeydown="if(event.key==='Enter')addArticulo()"/></div>
-        <button class="btn btn-dark btn-sm" onclick="addArticulo()" style="width:100%;justify-content:center;margin-bottom:12px;">+ Agregar artículo</button>
-        <!-- art list for reorder -->
-        <div id="artList" style="display:none;">
-          <div class="cfg-section-title" style="margin-bottom:6px;">Orden de artículos</div>
-          <div id="artListItems"></div>
-        </div>
-      </div>
+    <div class="add-art-row2">
+      <input class="f-input add-art-limit" id="newArtTotal" type="number" min="1" max="99999" placeholder="Límite de puntas..."
+        onkeydown="if(event.key==='Enter')addArticulo()"/>
+      <button class="btn btn-dark" onclick="addArticulo()" style="flex-shrink:0;white-space:nowrap;">+ Agregar</button>
     </div>
-
   </div>
 
-  <!-- RIGHT PANEL -->
-  <div class="panel">
+  <!-- MAIN PANEL -->
+  <div class="panel" style="margin-top:0;">
     <div class="stat-row">
       <span class="stat-pill">En proceso: <span id="statProc">0</span></span>
       <span class="stat-pill" style="color:var(--green-text);">Terminados: <span id="statDone">0</span></span>
@@ -109,7 +89,7 @@
       </div>
       <!-- CARD VIEW -->
       <div id="viewCards" style="display:none;padding:10px 10px 16px;"></div>
-      <div id="emptyProc" class="empty"><strong>Sin artículos en proceso</strong>Agrega artículos en el panel izquierdo.</div>
+      <div id="emptyProc" class="empty"><strong>Sin artículos en proceso</strong>Agrega un artículo usando la barra de arriba.</div>
     </div>
 
     <!-- TERMINADOS -->
@@ -123,8 +103,32 @@
     </div>
   </div>
 
-</div>
 </main>
+
+<!-- ═══════════ MODALS ═══════════ -->
+
+<!-- OPERACIONES MODAL -->
+<div class="modal-ov" id="opsModal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-hdr">
+      <span class="modal-title">OPERACIONES <span class="badge badge-muted" id="opCount" style="margin-left:6px;">0</span></span>
+      <button class="icon-btn" onclick="closeOps()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:12px;">
+        <div class="f-row"><input class="f-input" id="newOpInput" placeholder="Nombre de operación..." maxlength="30" onkeydown="if(event.key==='Enter')addOp()"/></div>
+        <label class="check-row"><input type="checkbox" id="chkLast"/> Marcar como última operación</label>
+        <button class="btn btn-dark btn-sm" onclick="addOp()" style="width:100%;justify-content:center;">+ Agregar operación</button>
+      </div>
+      <div id="opList"></div>
+      <!-- art reorder inside ops modal -->
+      <div id="artList" style="display:none;margin-top:14px;border-top:1.5px solid var(--border);padding-top:14px;">
+        <div class="cfg-section-title" style="margin-bottom:6px;">Orden de artículos</div>
+        <div id="artListItems"></div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- SHARE MODAL -->
 <div class="modal-ov" id="shareModal">
@@ -192,7 +196,7 @@
       <p style="font-size:13px;margin-bottom:15px;text-align:center;" id="confirmText"></p>
       <div style="display:flex;gap:8px;">
         <button class="btn" style="flex:1;justify-content:center;border:1.5px solid var(--border);color:var(--text);" onclick="closeConfirm()">No, volver</button>
-        <button class="btn btn-dark" style="flex:1;justify-content:center;" id="btnConfirmMove">Sí, terminar</button>
+        <button class="btn btn-dark" style="flex:1;justify-content:center;" id="btnConfirmMove" onclick="confirmMove()">Sí, terminar</button>
       </div>
     </div>
   </div>
@@ -219,6 +223,20 @@
         <div style="margin-bottom:8px;">
           <div class="f-label">Supervisor</div>
           <input class="f-input" id="cfgSupervisor" placeholder="Nombre del supervisor..." maxlength="50"/>
+        </div>
+        <div style="margin-bottom:8px;">
+          <div class="f-label">Horario de Turno</div>
+          <select class="f-input" id="cfgShiftMode">
+            <option value="dia">Día (7:00 a 19:00)</option>
+            <option value="noche">Noche (19:00 a 7:00)</option>
+          </select>
+        </div>
+        <div style="margin-bottom:8px;">
+          <div class="f-label">Visualización (Modo Lectura)</div>
+          <select class="f-input" id="cfgViewMode">
+            <option value="continuo">Continuo (Solo 3 horas)</option>
+            <option value="turno">Turno Completo (12 horas)</option>
+          </select>
         </div>
       </div>
       <div style="display:flex;gap:8px;">
@@ -247,7 +265,6 @@
 
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
-  console.log("Firebase initialized");
 </script>
 
 <script>
