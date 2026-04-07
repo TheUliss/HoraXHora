@@ -16,6 +16,8 @@
 <title id="pageTitle">Control de Producción</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="style.css">
+<!-- Móvil D&D Polyfill (SortableJS) -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 </head>
 <body>
 
@@ -24,18 +26,14 @@
   <div class="hdr-left">
     <div style="display:flex;align-items:baseline;gap:10px;">
       <h1 id="hdrTitle" title="Clic para configurar">CTRL PRODUCCIÓN</h1>
-      <span class="hdr-date" id="hdrDate"></span>
+      <button class="btn-icon" style="border:none;padding:2px;font-size:11px;" id="hdrDate" onclick="openHistory()"></button>
     </div>
     <span class="hdr-sub" id="hdrSub" style="display:none;"></span>
   </div>
   <div class="hdr-right">
     <button class="btn-icon" onclick="openOps()" title="Gestionar operaciones" style="background:transparent;border-color:#555;color:#ccc;padding:5px 10px;font-size:16px;letter-spacing:0;">&#9776;</button>
     <button class="btn-icon" onclick="openConfig()" title="Configurar área/turno" style="background:transparent;border-color:#555;color:#ccc;padding:5px 8px;font-size:14px;">&#9881;</button>
-    <label class="edit-toggle">
-      <span id="editLbl">Editar</span>
-      <label class="toggle-sw"><input type="checkbox" id="editToggle" checked/><span class="toggle-sl"></span></label>
-    </label>
-    <button class="btn btn-light btn-sm" onclick="openShare()">&#8599; Compartir</button>
+    <button class="btn btn-light btn-sm" onclick="openShare()">&#8599; <span class="hide-mob">Compartir</span></button>
   </div>
 </header>
 
@@ -188,15 +186,15 @@
   </div>
 </div>
 
-<!-- CONFIRM TERMINAR MODAL -->
+<!-- CONFIRM MODAL -->
 <div class="modal-ov" id="confirmModal">
   <div class="modal" style="max-width:300px;">
-    <div class="modal-hdr"><span class="modal-title">¿TERMINAR ARTÍCULO?</span></div>
+    <div class="modal-hdr"><span class="modal-title" id="confirmTitle">¿CONFIRMAR ACCIÓN?</span></div>
     <div class="modal-body">
       <p style="font-size:13px;margin-bottom:15px;text-align:center;" id="confirmText"></p>
       <div style="display:flex;gap:8px;">
-        <button class="btn" style="flex:1;justify-content:center;border:1.5px solid var(--border);color:var(--text);" onclick="closeConfirm()">No, volver</button>
-        <button class="btn btn-dark" style="flex:1;justify-content:center;" id="btnConfirmMove" onclick="confirmMove()">Sí, terminar</button>
+        <button class="btn" style="flex:1;justify-content:center;border:1.5px solid var(--border);color:var(--text);" onclick="closeConfirm()">No, cancelar</button>
+        <button class="btn btn-dark" style="flex:1;justify-content:center;" id="btnConfirmMove" onclick="confirmMove()">Sí, confirmar</button>
       </div>
     </div>
   </div>
@@ -239,10 +237,36 @@
           </select>
         </div>
       </div>
-      <div style="display:flex;gap:8px;">
+      
+      <div style="margin-top:10px;padding-top:15px;border-top:1px solid var(--border);">
+        <button class="btn" style="width:100%;justify-content:center;color:var(--red-text);border:1.5px solid var(--red-border);background:var(--red-bg);" onclick="closeConfig();requestClearDay()">
+          ⚠ Finalizar y Borrar Día Actual
+        </button>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:10px;">
         <button class="btn" style="flex:1;justify-content:center;border:1.5px solid var(--border);color:var(--text);" onclick="closeConfig()">Cancelar</button>
         <button class="btn btn-dark" style="flex:1;justify-content:center;" onclick="saveConfig()">Guardar</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- HISTORY MODAL -->
+<div class="modal-ov" id="historyModal">
+  <div class="modal" style="max-width:320px;">
+    <div class="modal-hdr">
+      <span class="modal-title">CALENDARIO HISTÓRICO</span>
+      <button class="icon-btn" onclick="closeHistory()">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--text2);margin-bottom:12px;text-align:center;">Selecciona un día pasado para verlo en modo solo-lectura.</p>
+      
+      <button class="btn btn-dark" id="histBackTodayBtn" style="width:100%;justify-content:center;margin-bottom:15px;display:none;background:var(--green-text);border-color:var(--green-text);" onclick="backToToday()">
+        🗓️ VOLVER AL DÍA DE HOY
+      </button>
+
+      <div id="histList" style="max-height:250px;overflow-y:auto;"></div>
     </div>
   </div>
 </div>

@@ -21,11 +21,72 @@ function updateShiftHours() {
 }
 updateShiftHours();
 
-// ── DATE ────────────────────────────────────────────────────
-(function(){
-  const d=new Date();
-  document.getElementById('hdrDate').textContent=d.toLocaleDateString('es-MX',{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
-})();
+// ── HISTORY & LOGICAL DATE ──────────────────────────────────
+let historyData = JSON.parse(localStorage.getItem('prod_history')) || {};
+let isHistoryView = false;
+let historyActiveDate = null; // YYYY-MM-DD that is currently viewed
+
+function getLogicalDate() {
+  const d = new Date();
+  if (d.getHours() < 7) {
+    d.setDate(d.getDate() - 1);
+  }
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+const currentLogicalDate = getLogicalDate();
+
+function checkAndArchive() {
+  if (!cfg.lastLogicalDate) {
+    cfg.lastLogicalDate = currentLogicalDate;
+    save();
+  } else if (cfg.lastLogicalDate !== currentLogicalDate && articulos.length > 0) {
+    // Límite de las 7:00 AM sobrepasado, guardar en historial y limpiar.
+    archiveCurrentDay();
+  } else {
+    cfg.lastLogicalDate = currentLogicalDate;
+    save();
+  }
+}
+
+function archiveCurrentDay() {
+  if (articulos.length > 0) {
+    historyData[cfg.lastLogicalDate] = {
+      dateStr: cfg.lastLogicalDate,
+      articulos: JSON.parse(JSON.stringify(articulos)),
+      cfgSnapshot: { area: cfg.area, turno: cfg.turno, supervisor: cfg.supervisor }
+    };
+    localStorage.setItem('prod_history', JSON.stringify(historyData));
+  }
+  articulos = []; // Limpiar masivamente (Artículos y Datos)
+  cfg.lastLogicalDate = currentLogicalDate;
+  save();
+}
+checkAndArchive();
+
+function formatLogicalDateStr(ds) {
+  const [y,m,d] = ds.split('-');
+  const dateObj = new Date(y, m-1, d, 12, 0, 0); 
+  return dateObj.toLocaleDateString('es-MX',{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
+}
+
+function updateHeaderDate() {
+  const ds = isHistoryView ? historyActiveDate : currentLogicalDate;
+  const dateStrForHumans = formatLogicalDateStr(ds);
+  const el = document.getElementById('hdrDate');
+  el.textContent = dateStrForHumans + (isHistoryView ? ' (HISTÓRICO)' : ' ▼');
+  if(isHistoryView) {
+    el.style.color = 'var(--amber-text)';
+    el.style.backgroundColor = 'var(--amber-bg)';
+    el.style.padding = '2px 6px';
+    el.style.borderRadius = '4px';
+  } else {
+    el.style.color = '#777';
+    el.style.backgroundColor = 'transparent';
+    el.style.padding = '0';
+  }
+}
+updateHeaderDate();
+
 
 // ── TABS ────────────────────────────────────────────────────
 function showTab(id,el){
@@ -35,12 +96,8 @@ function showTab(id,el){
   el.classList.add('active');
 }
 
-// ── EDIT TOGGLE ─────────────────────────────────────────────
-document.getElementById('editToggle').addEventListener('change',function(){
-  editMode=this.checked;
-  document.getElementById('editLbl').textContent=editMode?'Editar':'Ver';
-  renderAll();
-});
+// ── EDIT TOGGLE (OBSOLETE - REMOVED) ── 
+// editMode is now permanently true to allow ubiquitous editing.
 
 // ── CONFIG ───────────────────────────────────────────────────
 function openConfig(){
@@ -100,15 +157,33 @@ function setLastOp(i){
   save(); renderAll();
 }
 
+// ── REORDERING (ARROWS) ────────────────────────────────────────────────
+function moveOpNode(idx, dir) {
+  if (idx + dir < 0 || idx + dir >= ops.length) return;
+  const item = ops.splice(idx, 1)[0];
+  ops.splice(idx + dir, 0, item);
+  save();
+  renderAll();
+}
+
+function moveArtNode(idx, dir) {
+  if (idx + dir < 0 || idx + dir >= articulos.length) return;
+  const item = articulos.splice(idx, 1)[0];
+  articulos.splice(idx + dir, 0, item);
+  save();
+  renderAll();
+}
+
 function renderOps(){
   const el=document.getElementById('opList');
   document.getElementById('opCount').textContent=ops.length;
   if(!ops.length){el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:4px 0;">Sin operaciones aún. Agrega la primera.</div>';return;}
   el.innerHTML=ops.map((o,i)=>`
-    <div class="op-item" draggable="true" data-idx="${i}"
-      ondragstart="opDragStart(event,${i})" ondragover="opDragOver(event,${i})"
-      ondragleave="opDragLeave(event)" ondrop="opDrop(event,${i})" ondragend="opDragEnd()">
-      <span class="drag-handle" title="Arrastrar para reordenar">⠿</span>
+    <div class="op-item" data-idx="${i}">
+      <div class="move-btns">
+        <button class="move-btn" onclick="moveOpNode(${i}, -1)" ${i===0?'disabled':''}>▲</button>
+        <button class="move-btn" onclick="moveOpNode(${i}, 1)" ${i===ops.length-1?'disabled':''}>▼</button>
+      </div>
       <span class="op-num">${i+1}.</span>
       <span class="op-name">${o.name}</span>
       <div class="op-right">
@@ -120,20 +195,21 @@ function renderOps(){
     </div>`).join('');
 }
 
-// ── OPS DRAG & DROP ─────────────────────────────────────────
-function opDragStart(e,i){opDragIdx=i;e.currentTarget.classList.add('dragging');}
-function opDragOver(e,i){e.preventDefault();if(i!==opDragIdx)e.currentTarget.classList.add('drag-over');}
-function opDragLeave(e){e.currentTarget.classList.remove('drag-over');}
-function opDrop(e,i){
-  e.preventDefault();
-  if(opDragIdx<0||opDragIdx===i)return;
-  const moved=ops.splice(opDragIdx,1)[0];
-  ops.splice(i,0,moved);
-  opDragIdx=-1;save();renderAll();
-}
-function opDragEnd(){opDragIdx=-1;renderAll();}
+// ── HELPERS ─────────────────────────────────────────────────
+function lastOpIdx(){return ops.findIndex(o=>o.last);}
+function isDone(art){const li=lastOpIdx();if(li<0)return false;return art.cells.some(c=>c.opIdx===li);}
+function cellHasData(c){return c.opIdx>=0;}
+function cellNum(art,c){return c.num||0;}
 
 // ── ARTÍCULOS ───────────────────────────────────────────────
+function removeArticulo(ai){
+  openConfirm('delete', ai);
+}
+function doRemoveArticulo(ai){
+  articulos.splice(ai,1);
+  save(); renderAll();
+}
+
 function checkDuplicateName(val){
   const w=document.getElementById('dupWarning');
   const exists=articulos.some(a=>a.name.toLowerCase()===val.trim().toLowerCase());
@@ -152,35 +228,22 @@ function addArticulo(){
   save(); renderAll();
 }
 
-function removeArticulo(i){articulos.splice(i,1);save();renderAll();}
-
 function renderArtList(){
   const wrap=document.getElementById('artList');
   const list=document.getElementById('artListItems');
   if(!articulos.length){wrap.style.display='none';return;}
   wrap.style.display='block';
   list.innerHTML=articulos.map((a,i)=>`
-    <div class="art-item" draggable="true" data-idx="${i}"
-      ondragstart="artDragStart(event,${i})" ondragover="artDragOver(event,${i})"
-      ondragleave="artDragLeave(event)" ondrop="artDrop(event,${i})" ondragend="artDragEnd()">
-      <span class="art-item-drag" title="Arrastrar">⠿</span>
+    <div class="art-item" data-idx="${i}">
+      <div class="move-btns" style="margin-right:8px;">
+        <button class="move-btn" onclick="moveArtNode(${i}, -1)" ${i===0?'disabled':''}>▲</button>
+        <button class="move-btn" onclick="moveArtNode(${i}, 1)" ${i===articulos.length-1?'disabled':''}>▼</button>
+      </div>
       <span class="art-item-name">${a.name}</span>
       ${a.total?`<span class="art-item-total">${a.total}pts</span>`: ''}
     </div>`).join('');
 }
 
-// ── ARTÍCULOS DRAG & DROP ───────────────────────────────────
-function artDragStart(e,i){artDragIdx=i;e.currentTarget.classList.add('dragging');}
-function artDragOver(e,i){e.preventDefault();if(i!==artDragIdx)e.currentTarget.classList.add('drag-over');}
-function artDragLeave(e){e.currentTarget.classList.remove('drag-over');}
-function artDrop(e,i){
-  e.preventDefault();
-  if(artDragIdx<0||artDragIdx===i)return;
-  const moved=articulos.splice(artDragIdx,1)[0];
-  articulos.splice(i,0,moved);
-  artDragIdx=-1;save();renderAll();
-}
-function artDragEnd(){artDragIdx=-1;renderAll();}
 
 // ── HELPERS ─────────────────────────────────────────────────
 function lastOpIdx(){return ops.findIndex(o=>o.last);}
@@ -262,9 +325,15 @@ function toggleView(){
 
 // ── RENDER ALL ───────────────────────────────────────────────
 function renderAll(){
-  renderOps(); renderArtList();
-  if(cardView) renderCards(); else renderTable();
-  renderDone(); renderResumen(); renderStats();
+  const addBar = document.querySelector('.add-art-bar');
+  if(addBar) addBar.style.display = isHistoryView ? 'none' : 'flex';
+  renderOps();
+  renderArtList();
+  renderTable();
+  renderCards();
+  renderDone();
+  renderResumen();
+  renderStats();
   document.getElementById('artCount').textContent=articulos.length;
 }
 
@@ -272,11 +341,14 @@ function renderAll(){
 function renderStats(){
   const done=articulos.filter(a=>isDone(a));
   const proc=articulos.filter(a=>!isDone(a));
-  const puntas=articulos.reduce((s,a)=>s+artSum(a),0);
+  
+  const puntasTerminadas=done.reduce((s,a)=>s+(a.total||0),0);
+  const metaTotal=articulos.reduce((s,a)=>s+(a.total||0),0);
+  
   const over=articulos.filter(a=>artIsOver(a)).length;
   document.getElementById('statProc').textContent=proc.length;
   document.getElementById('statDone').textContent=done.length;
-  document.getElementById('statPuntas').textContent=puntas;
+  document.getElementById('statPuntas').textContent=`${puntasTerminadas}/${metaTotal}`;
   document.getElementById('statOver').textContent=over;
   const pill=document.getElementById('statOverPill');
   pill.style.display=over>0?'':'none';
@@ -310,17 +382,26 @@ function renderTable(){
   tbl.style.display=active.length?'':'none';
   document.getElementById('emptyProc').style.display=active.length?'none':'block';
 
+  const curIdx=getCurrentHourIdx();
+
   document.getElementById('thead').innerHTML=`<tr>
+    <th style="width:14px; min-width:14px; padding:0 2px;"></th>
     <th class="col-art">Artículo</th>
     <th class="col-tot">Progreso</th>
-    ${HORAS.map(h=>`<th>${h}</th>`).join('')}
-    <th style="min-width:26px;"></th>
+    ${HORAS.map((h,ci)=>`<th class="${ci===curIdx?'col-now':''}">${h}</th>`).join('')}
+    <th style="min-width:60px;"> Acciones </th>
   </tr>`;
 
   document.getElementById('tbody').innerHTML=active.map(art=>{
     const ri=articulos.indexOf(art);
     const over=artIsOver(art);
-    return `<tr class="${isDone(art)?'done-row':''}">
+    return `<tr class="${isDone(art)?'done-row':''}" data-ai="${ri}">
+      <td class="col-move" style="padding:4px 2px;width:10px;vertical-align:middle;">
+        ${isHistoryView ? '' : `<div class="move-btns" style="flex-direction:column;gap:2px;">
+          <button class="move-btn" onclick="moveArtNode(${ri}, -1)">▲</button>
+          <button class="move-btn" onclick="moveArtNode(${ri}, 1)">▼</button>
+        </div>`}
+      </td>
       <td class="col-art">
         <div class="art-wrap">
           <span style="font-weight:500;${over?'color:var(--red-text);':''}">${over?'⚠ ':''}${art.name}</span>
@@ -333,39 +414,41 @@ function renderTable(){
         const hasOp=c.opIdx>=0;
         const num=cellNum(art,c);
         const cellOver=art.total>0&&hasOp&&num>art.total;
-        if(editMode){
-          return `<td${cellOver?' class="cell-over"':''}><div class="cell-ed">
-            <select class="cell-sel${cellOver?' over-limit':''}" onchange="validateCellOp(${ri},${ci},this.value)">
-              <option value="-1">—</option>
-              ${ops.map((o,oi)=>`<option value="${oi}"${c.opIdx===oi?' selected':''}>${oi+1}. ${o.name}</option>`).join('')}
-            </select>
-            ${hasOp?`<div class="stepper">
-                <button class="step-btn" onpointerdown="stepDown(event,${ri},${ci})">−</button>
-                <span class="step-val${cellOver?' over-limit':''}" onclick="openNumpad(${ri},${ci})">${num}</span>
-                <button class="step-btn" onpointerdown="stepUp(event,${ri},${ci})">+</button>
-              </div>`: ''}
-          </div></td>`;
-        }else{
-          return `<td><div class="cell-ro">
-            ${hasOp
-              ?`<span style="font-family:var(--mono);font-size:11px;white-space:nowrap;${cellOver?'color:var(--red-text);':''}">${c.opIdx+1}.${ops[c.opIdx]?.name|| ''} <b>${num}</b></span>`
-              :`<span style="color:var(--text3);">—</span>`}
-          </div></td>`;
+        if (isHistoryView) {
+            const opName = hasOp && ops[c.opIdx] ? `${c.opIdx+1}. ${ops[c.opIdx].name}` : '—';
+            return `<td class="${cellOver?'cell-over':''} ${ci===curIdx?'col-now':''}"><div class="cell-ro">
+              <div style="font-size:9px;color:var(--text3);margin-bottom:2px;">${opName}</div>
+              <div style="font-weight:600;">${num}</div>
+            </div></td>`;
         }
+        return `<td class="${cellOver?'cell-over':''} ${ci===curIdx?'col-now':''}"><div class="cell-ed">
+          <select class="cell-sel${cellOver?' over-limit':''}" onchange="validateCellOp(${ri},${ci},this.value)">
+            <option value="-1">—</option>
+            ${ops.map((o,oi)=>`<option value="${oi}"${c.opIdx===oi?' selected':''}>${oi+1}. ${o.name}</option>`).join('')}
+          </select>
+          <div class="cell-num-row">
+            <span class="cell-num-btn${cellOver?' over-limit':''}" onclick="openNumpad(${ri},${ci})">${num}</span>
+          </div>
+        </div></td>`;
       }).join('')}
-      <td><button class="icon-btn danger" onclick="removeArticulo(${ri})" style="padding:3px 5px;">×</button></td>
+      <td style="white-space:nowrap;">
+        ${isHistoryView ? '' : `
+          <button class="icon-btn warn" onclick="clearArtData(${ri})" title="Limpiar datos" style="padding:2px 5px;display:inline-flex;align-items:center;justify-content:center;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+          </button>
+          <button class="icon-btn danger" onclick="removeArticulo(${ri})" title="Eliminar artículo" style="padding:3px 5px;">×</button>
+        `}
+      </td>
     </tr>`;
   }).join('');
 
   if(active.length){
-    const horaSums=HORAS.map((_,ci)=>active.reduce((s,art)=>{
-      const c=art.cells[ci];return cellHasData(c)?s+cellNum(art,c):s;
-    },0));
     const totalSum=active.reduce((s,a)=>s+(a.total||artSum(a)),0);
     document.getElementById('tfoot').innerHTML=`<tr class="tfoot-row">
+      <td></td>
       <td class="col-art">Total en proceso</td>
       <td class="col-tot">${totalSum}</td>
-      ${horaSums.map(s=>`<td>${s|| '—'}</td>`).join('')}
+      ${HORAS.map(()=>`<td></td>`).join('')}
       <td></td>
     </tr>`;
   }else{document.getElementById('tfoot').innerHTML='';}
@@ -398,24 +481,22 @@ function buildChip(art,ri,ci,isCurrent,isHistory){
   const opName=hasOp&&ops[c.opIdx]?ops[c.opIdx].name:'';
   const opNum=hasOp?c.opIdx+1:null;
 
-  const selectHtml=editMode?`
-    <div class="hour-chip-select-wrap">
-      <select class="hour-chip-select" onchange="validateCellOp(${ri},${ci},this.value)">
-        <option value="-1">— Sin op —</option>
+  const selectHtml= isHistoryView ? '' : `
+    <div class="hour-chip-op-select">
+      <select class="cell-sel${cellOver?' over-limit':''}" onchange="validateCellOp(${ri},${ci},this.value)">
+        <option value="-1">—</option>
         ${ops.map((o,oi)=>`<option value="${oi}"${c.opIdx===oi?' selected':''}>${oi+1}. ${o.name}</option>`).join('')}
       </select>
-    </div>`:'';
+    </div>`;
 
   const countHtml=hasOp?`
     <div class="hour-chip-count">
-      <span class="hour-chip-num${cellOver?' over':''}" onclick="${editMode?`openNumpad(${ri},${ci})`:''}"
-        style="${editMode?'cursor:pointer;':''}">${num}</span>
-      ${editMode?`
+      <span class="hour-chip-num${cellOver?' over':''}" ${isHistoryView ? '' : `onclick="openNumpad(${ri},${ci})" style="cursor:pointer;"`}>${num}</span>
+      ${isHistoryView ? '' : `
       <div class="hour-chip-stepper">
         <button class="chip-step-btn" onpointerdown="stepUp(event,${ri},${ci})">+</button>
         <button class="chip-step-btn" onpointerdown="stepDown(event,${ri},${ci})">−</button>
-      </div>
-      `:''}
+      </div>`}
     </div>`:'';
 
   return `<div class="hour-chip ${chipCls.trim()}">
@@ -439,7 +520,7 @@ function renderCards(){
   const curIdx=getCurrentHourIdx();
   let winStart = 0, winEnd = 11;
   
-  if (!editMode && cfg.viewMode !== 'turno') {
+  if (cfg.viewMode !== 'turno') {
     // Continuo Read-Only: 2 hours prior to current
     winStart = Math.max(0, curIdx - 2);
     winEnd = Math.min(11, Math.max(curIdx, winStart));
@@ -485,12 +566,19 @@ function renderCards(){
 
     return '<div class="art-card'+(over?' card-over':'')+(isExpanded?' expanded':'')+(isHistOpen?' hist-open':'')+'" data-ai="'+ri+'">'+
       '<div class="art-card-hdr" onclick="toggleCard('+ri+')">'+
+        (isHistoryView ? '' : `<div class="move-btns" style="flex-direction:column;gap:1px;margin: -6px 6px -6px -8px;" onclick="event.stopPropagation()">
+            <button class="move-btn" onclick="moveArtNode(${ri}, -1)">▲</button>
+            <button class="move-btn" onclick="moveArtNode(${ri}, 1)">▼</button>
+          </div>`)+
         '<div class="art-card-hdr-left">'+
           '<div class="art-card-name'+(over?' over':'')+'">'+( over?'⚠ ':'')+art.name+(art.isDuplicate?' <span style="font-size:9px;color:#c0392b;font-weight:600;margin-left:4px;">⚠ DUPLICADO</span>':'')+'</div>'+
           '<div class="art-card-meta">'+filledHours+' hrs registradas'+(art.total?' · límite: '+art.total:'')+'</div>'+
         '</div>'+
         '<div class="art-card-actions">'+
-          '<button class="icon-btn danger" onclick="event.stopPropagation();removeArticulo('+ri+')" style="padding:3px 5px;">×</button>'+
+          (isHistoryView ? '' : `<button class="icon-btn warn" onclick="event.stopPropagation();clearArtData(${ri})" title="Limpiar datos" style="padding:2px 5px;display:inline-flex;align-items:center;justify-content:center;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+          </button>`+
+          '<button class="icon-btn danger" onclick="event.stopPropagation();removeArticulo('+ri+')" title="Eliminar artículo" style="padding:3px 5px;">&times;</button>')+
           '<span class="art-card-chevron">▼</span>'+
         '</div>'+
       '</div>'+
@@ -505,6 +593,16 @@ function renderCards(){
       '</div>'+
     '</div>';
   }).join('');
+
+  // ADD GRAND TOTAL SUMMARY TO CARD VIEW (TOP)
+  const grandTarget = active.reduce((s,a)=>s+(a.total||0),0);
+  const summaryHtml = `
+    <div class="card-summary">
+      <span class="card-summary-label">Meta Total de Turno</span>
+      <span class="card-summary-val">${grandTarget}</span>
+    </div>
+  `;
+  cont.innerHTML = summaryHtml + cont.innerHTML;
 }
 
 function toggleCard(ai){
@@ -523,30 +621,65 @@ function validateCellOp(ai,ci,val){
   const v=parseInt(val);
   const li=lastOpIdx();
   if(v===li&&li!==-1){
-    pendingMove={ai,ci,val:v};
-    document.getElementById('confirmText').textContent=`¿Seguro que "${articulos[ai].name}" completó la última operación?`;
-    document.getElementById('confirmModal').classList.add('open');
+    openConfirm('finish', ai, ci, v);
   }else{
     setCellOp(ai,ci,v);
   }
+}
+
+function openConfirm(type, ai, ci = null, val = null) {
+  pendingMove = { type, ai, ci, val };
+  const art = articulos[ai];
+  const title = document.getElementById('confirmTitle');
+  const text = document.getElementById('confirmText');
+  const btn = document.getElementById('btnConfirmMove');
+
+  if (type === 'finish') {
+    title.textContent = '¿TERMINAR ARTÍCULO?';
+    text.textContent = `¿Seguro que "${art.name}" completó la última operación?`;
+    btn.textContent = 'Sí, terminar';
+  } else if (type === 'clear') {
+    title.textContent = '¿LIMPIAR DATOS?';
+    text.textContent = `Se borrarán todas las operaciones y cantidades de "${art.name}". No se puede deshacer.`;
+    btn.textContent = 'Sí, limpiar';
+  } else if (type === 'delete') {
+    title.textContent = '¿ELIMINAR ARTÍCULO?';
+    text.textContent = `¿Seguro que quieres eliminar "${art.name}" por completo?`;
+    btn.textContent = 'Sí, eliminar';
+  }
+  document.getElementById('confirmModal').classList.add('open');
 }
 
 function confirmMove(){
   if(pendingMove){
     const pm = pendingMove;
     pendingMove = null;
-    setCellOp(pm.ai, pm.ci, pm.val);
+    if (pm.type === 'finish') {
+      setCellOp(pm.ai, pm.ci, pm.val);
+    } else if (pm.type === 'clear') {
+      doClearArtData(pm.ai);
+    } else if (pm.type === 'delete') {
+      doRemoveArticulo(pm.ai);
+    }
   }
   document.getElementById('confirmModal').classList.remove('open');
 }
 
 function closeConfirm(){
   document.getElementById('confirmModal').classList.remove('open');
-  if(pendingMove){
-    pendingMove=null;
-    renderAll();
-  }
+  pendingMove = null;
+  renderAll();
 }
+
+function clearArtData(ai) {
+  openConfirm('clear', ai);
+}
+
+function doClearArtData(ai) {
+  articulos[ai].cells = HORAS.map(() => ({ opIdx: -1, num: 0 }));
+  save(); renderAll();
+}
+
 function setCellOp(ai,ci,val){
   articulos[ai].cells[ci].opIdx=val;
   if(val<0)articulos[ai].cells[ci].num=0;
@@ -633,12 +766,20 @@ function renderDone(){
 
 // ── RESUMEN ──────────────────────────────────────────────────
 function renderResumen(){
-  const notDone=articulos.filter(a=>!isDone(a)&&a.cells.some(c=>cellHasData(c)));
+  const done = articulos.filter(a=>isDone(a));
+  const notDone = articulos.filter(a=>!isDone(a)&&a.cells.some(c=>cellHasData(c)));
+  
   document.getElementById('pendBadge').textContent=notDone.length||'';
   const cont=document.getElementById('resContent');
-  if(!notDone.length){cont.innerHTML='<div class="empty"><strong>Sin pendientes</strong>Todos los artículos están terminados o sin datos.</div>';return;}
-  cont.innerHTML=`
-    <div style="margin-bottom:12px;display:flex;justify-content:flex-end;">
+  cont.innerHTML = '';
+
+  if(!notDone.length){
+    cont.innerHTML += '<div class="empty"><strong>Sin pendientes activos</strong></div>';
+    return;
+  }
+  
+  cont.innerHTML += `
+    <div style="margin:20px 0 12px;display:flex;justify-content:flex-end;">
       <button class="btn btn-dark btn-sm" onclick="openShare('resumen')">↗ Compartir Resumen</button>
     </div>
     <div class="table-wrap"><table class="inner-table">
@@ -667,19 +808,20 @@ function buildShare(){
   if(cfg.area)meta.push(cfg.area);
   if(cfg.turno)meta.push(`Turno: ${cfg.turno}`);
   if(cfg.supervisor)meta.push(`Sup: ${cfg.supervisor}`);
-  const header='📋 REPORTE DE TURNO\n'+d.toUpperCase()+(meta.length?'\n'+meta.join('  |  '):'');
+  const header='REPORTE DE TURNO\n'+d.toUpperCase()+(meta.length?'\n'+meta.join('  |  '):'');
   const done=articulos.filter(a=>isDone(a));
   const pend=articulos.filter(a=>!isDone(a)&&a.cells.some(c=>cellHasData(c)));
-  const txtDone=header+'\n\n✅ TERMINADOS:\n'
-    +(done.length?done.map(a=>`  ✓ ${a.name} (${a.total||0} puntas)`).join('\n'):'  (ninguno)');
-  const txtPend='⏳ PENDIENTES:\n'
+  const txtDone=header+'\n\nTERMINADOS:\n'
+    +(done.length?done.map(a=>`  - ${a.name} (${a.total||0} puntas)`).join('\n'):'  (ninguno)');
+  const txtPend='PENDIENTES:\nARTÍCULO | PUNTAS | ÚLTIMA OPERACIÓN | PROGRESO\n'
     +(pend.length?pend.map(a=>{
       const lc=a.cells.filter(c=>cellHasData(c)).pop();
-      const opName=lc&&ops[lc.opIdx]?`${lc.opIdx+1}. ${ops[lc.opIdx].name}`:'—';
+      const opName=lc&&ops[lc.opIdx]? ops[lc.opIdx].name : '—';
       const progress=artSum(a);
-      const over=a.total>0&&progress>a.total?` ⚠ EXCEDE LÍMITE`:'';
-      return `  • ${a.name} — ${opName} | ${progress}/${a.total||0}${over}`;
-    }).join('\n'):'  (ninguno)');
+      const over=a.total>0&&progress>a.total?` [EXCEDE LÍMITE]`:'';
+      const num = lc ? getLastRemaining(a) : 0;
+      return `${a.name} | ${num} | ${opName} | ${progress}/${a.total||0}${over}`;
+    }).join('\n'):'(ninguno)');
   const onlyRes=header+'\n\n'+txtPend;
   return{txtDone,txtPend,onlyRes};
 }
@@ -718,30 +860,121 @@ function shareWA(){
 }
 
 // ── MODAL CLOSE ON BACKDROP ──────────────────────────────────
-['shareModal','numpadModal','confirmModal','configModal','opsModal'].forEach(id=>{
-  document.getElementById(id).addEventListener('click',function(e){
+['shareModal','numpadModal','confirmModal','configModal','opsModal','historyModal'].forEach(id=>{
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.addEventListener('click',function(e){
     if(e.target===this){
       if(id==='confirmModal')closeConfirm();
       else if(id==='numpadModal')closeNumpad();
       else if(id==='shareModal')closeShare();
       else if(id==='configModal')closeConfig();
       else if(id==='opsModal')closeOps();
+      else if(id==='historyModal')closeHistory();
     }
   });
 });
+
+// ── HISTORY BROWSER ──────────────────────────────────────────
+function openHistory() {
+  const list = document.getElementById('histList');
+  const dates = Object.keys(historyData).sort().reverse();
+  
+  if (dates.length === 0) {
+    list.innerHTML = '<div class="empty">No hay días guardados todavía.</div>';
+  } else {
+    list.innerHTML = dates.map(d => {
+      const isCurrent = (isHistoryView && historyActiveDate === d);
+      return `<button class="btn ${isCurrent ? 'btn-dark' : 'btn-light'}" style="width:100%;justify-content:center;margin-bottom:8px;" onclick="loadHistoryDate('${d}')">${formatLogicalDateStr(d)}</button>`;
+    }).join('');
+  }
+  
+  const backBtn = document.getElementById('histBackTodayBtn');
+  backBtn.style.display = isHistoryView ? 'block' : 'none';
+  
+  document.getElementById('historyModal').classList.add('open');
+}
+
+function closeHistory() {
+  document.getElementById('historyModal').classList.remove('open');
+}
+
+function loadHistoryDate(dateStr) {
+  isHistoryView = true;
+  historyActiveDate = dateStr;
+  const historicDay = historyData[dateStr];
+  
+  // Load snapshot overrides
+  articulos = historicDay.articulos;
+  if(historicDay.cfgSnapshot) {
+    cfg = { ...cfg, ...historicDay.cfgSnapshot }; // Preserve non-snapshot stuff
+  }
+  
+  closeHistory();
+  updateHeaderDate();
+  applyConfig();
+  renderAll();
+}
+
+function backToToday() {
+  isHistoryView = false;
+  historyActiveDate = null;
+  load(); // Restores localStorage
+  closeHistory();
+  updateHeaderDate();
+  applyConfig();
+  renderAll();
+}
+
+// ── MANUAL DATA CLEAR ────────────────────────────────────────
+function requestClearDay() {
+  if(isHistoryView) {
+    alert("No puedes limpiar datos mientras ves el historial.");
+    return;
+  }
+  openConfirm('clearApp');
+}
+
+// Intercept confirmMove to handle clearApp
+const originalConfirmMove = confirmMove;
+confirmMove = function() {
+  if (pendingMove && pendingMove.type === 'clearApp') {
+    archiveCurrentDay();
+    document.getElementById('confirmModal').classList.remove('open');
+    pendingMove = null;
+    renderAll();
+  } else {
+    originalConfirmMove();
+  }
+}
+
+// Intercept openConfirm to handle clearApp message
+const originalOpenConfirm = openConfirm;
+openConfirm = function(type, ai, ci, val) {
+  if (type === 'clearApp') {
+    pendingMove = { type: 'clearApp' };
+    document.getElementById('confirmTitle').textContent = '¿LIMPIAR TODO EL DÍA?';
+    document.getElementById('confirmText').textContent = 'Se guardarán los artículos actuales en el historial y se empezará un día completamente limpio. ¿Estás seguro?';
+    document.getElementById('btnConfirmMove').textContent = 'Sí, limpiar día';
+    document.getElementById('confirmModal').classList.add('open');
+  } else {
+    originalOpenConfirm(type, ai, ci, val);
+  }
+}
+
 
 // ── PERSIST ──────────────────────────────────────────────────
 function save(){
   try{
     localStorage.setItem('prod_ops',JSON.stringify(ops));
-    localStorage.setItem('prod_arts',JSON.stringify(articulos));
+    localStorage.setItem('prod_art',JSON.stringify(articulos));
     localStorage.setItem('prod_cfg',JSON.stringify(cfg));
   }catch(e){}
 }
 function load(){
   try{
     const o=localStorage.getItem('prod_ops');
-    const a=localStorage.getItem('prod_arts');
+    const a=localStorage.getItem('prod_art');
     const c=localStorage.getItem('prod_cfg');
     if(o)ops=JSON.parse(o);
     if(a)articulos=JSON.parse(a);
